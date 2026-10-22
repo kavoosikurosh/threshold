@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Report · Threshold</title>
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="static/manifest.json">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Threshold">
+<link rel="stylesheet" href="static/app.css">
+<script src="static/threshold.js"></script>
+<style>
+  /* hazard rows: icon, name, short fix, "Fixed it" check. Tap the row to open details. */
+  .hz { position: relative; }
+  .hz + .hz::before { content: ""; position: absolute; top: 0; right: 0; left: 56px; border-top: .5px solid var(--sep); z-index: 1; }
+  .hz-row { display: flex; align-items: center; gap: 12px; padding-right: 4px; }
+  .hz-row .row { flex: 1; padding-right: 4px; }
+  .hz-row .row::before { display: none; }
+  .fix-btn { width: 48px; height: 48px; flex: none; display: grid; place-items: center; border: 0; background: none; cursor: pointer; margin-right: 4px; }
+  .fix-btn span { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--label3); display: grid; place-items: center; color: transparent; transition: background .15s, border-color .15s; }
+  .fix-btn svg.i { width: 18px; height: 18px; stroke-width: 3; }
+  .fix-btn[aria-pressed="true"] span { background: var(--green); border-color: var(--green); color: #fff; }
+  .hz.fixed .row-title { text-decoration: line-through; color: var(--label2); }
+  .hz.fixed .ico { background: var(--green); }
+  .row .chev.down { transform: rotate(90deg); transition: transform .2s; }
+  .hz.open .chev.down { transform: rotate(-90deg); }
+  .hz-body { padding: 0 16px 16px 60px; }
+  .hz-body .crop { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: var(--radius-sm); background: var(--fill); margin-bottom: 12px; }
+  .hz-body p { margin: 0 0 8px; font-size: .941rem; line-height: 1.4; }
+  .hz-body .quote { color: var(--label2); border-left: 3px solid var(--sep); padding-left: 12px; }
+  .hz-body .yn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .hz-body .yn .btn { margin: 0; }
+  .photo { position: relative; border-radius: var(--radius); overflow: hidden; background: var(--cell); }
+  .photo img { display: block; width: 100%; height: auto; }
+  .photo svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .bx rect { fill: none; }
+  .bx.dashed rect, .bx.possible rect { stroke-dasharray: 18 12; }
+  .bx text { fill: #fff; font: 700 var(--fs) -apple-system, system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+  .clear-card b { display: block; margin-bottom: 4px; }
+  .clear-card p { margin: 0; color: var(--label2); }
+  .tap-hear { margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<header class="nav" id="nav">
+  <div class="nav-in">
+    <div class="nav-left"><a class="nav-btn back" href="home.html">
+      <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Home</a></div>
+    <div class="nav-title" id="navTitle">Report</div>
+    <div class="nav-right"><button class="nav-btn voice-ctl" type="button" id="voiceBtn"></button></div>
+  </div>
+</header>
+
+<main class="page">
+  <h1 class="large-title" id="title">Room report</h1>
+  <p class="subtitle" id="when"></p>
+  <!-- [v1.0.2] after a quick scan (no room picked): optional room name -->
+  <div class="group" id="nameRoom" style="margin-bottom:16px" hidden>
+    <button class="row" type="button" id="nameRoomBtn">
+      <span class="ico plain" id="nameRoomIco"></span>
+      <span class="row-main"><span class="row-title">Which room was this?</span><span class="row-sub">Optional. Saves this scan under that room.</span></span>
+      <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+  </div>
+
+  <div class="card score" id="scoreCard"></div>
+  <button class="btn tap-hear" type="button" id="tapHear" hidden>Tap to hear your report</button>
+  <p class="caption sr-only" id="caption" aria-live="polite"></p>
+  <p class="note" id="heard" hidden></p>
+
+  <div id="questionsSec" hidden>
+    <h2 class="group-head">Please answer</h2>
+    <div class="group" id="questionList"></div>
+  </div>
+
+  <div id="fixSec">
+    <h2 class="group-head" id="fixHead">To fix</h2>
+    <div class="group" id="fixList"></div>
+  </div>
+
+  <div id="checkSec" hidden>
+    <h2 class="group-head">Worth a quick check</h2>
+    <div class="group" id="checkList"></div>
+    <p class="group-foot">We weren't sure about these. Take a look in person.</p>
+  </div>
+
+  <div id="safeSec" hidden>
+    <h2 class="group-head">Looks good</h2>
+    <div class="group" id="safeList"></div>
+  </div>
+
+  <h2 class="group-head" id="photoHead">Photo</h2>
+  <figure class="photo" id="photo" style="margin:0"><img id="photoImg" alt=""><svg id="boxes" aria-hidden="true"></svg></figure>
+
+  <div class="group" style="margin-top:24px">
+    <button class="row no-icon action" type="button" id="shareBtn">Share report</button>
+  </div>
+  <p class="group-foot">Based on the CDC STEADI home safety checklist. Threshold can miss things and is not a replacement for a professional home safety assessment.</p>
+</main>
+
+<!-- grab bar question (sheet) -->
+<section class="sheet" id="qSheet" aria-labelledby="qTitle">
+  <div class="grabber" aria-hidden="true"></div>
+  <div class="sheet-head"><button class="nav-btn" type="button" data-close>Later</button><h2 id="qTitle">Grab bar</h2><span></span></div>
+  <div id="qPhoto"></div>
+  <p class="lead" id="qText"></p>
+  <div class="yn"><button class="btn" type="button" data-answer="no">No</button><button class="btn primary" type="button" data-answer="yes">Yes</button></div>
+</section>
+
+<script>
+// =============================================================================
+// DATA IN (from camera.html or Scan mode on home.html), sessionStorage["threshold.report"]:
+//   { room, date, source: "photo"|"scan", frames: [{image, width, height}], main, offset,
+//     detections, report, image, width, height, bathroom_cue }
+// A scan report has several frames: each hazard comes from the frame where it was seen,
+// and frames are laid side by side (box x + frame * offset). A photo report has one frame.
+// [final] Native-style layout: score + one-line summary, then simple rows (icon, name,
+// short fix, "Fixed it" check). Tap a row for the CDC quote and the photo crop.
+// =============================================================================
+const T = Threshold;
+const $ = id => document.getElementById(id);
+const HANDOFF_KEY = "threshold.report";
+const ROOMS_KEY = "threshold.rooms";        // saved room summaries, read by home.html
+const isPossible = hz => T.isPossible(hz);
+const LABELS = {
+  cord: "Cord or wire on the floor", rug: "Loose rug", clutter_on_floor: "Clutter on the floor",
+  raised_threshold: "Step or raised threshold", stair_edge: "Stairs", missing_grab_bar: "Missing grab bar",
+};
+// Short fixes for the row (the full CDC fix is in the details).
+const SHORT_FIX = {
+  cord: "Coil or tape it by the wall", rug: "Tape it down or remove it", clutter_on_floor: "Pick things up off the floor",
+  raised_threshold: "Mark the edge with bright tape", stair_edge: "Handrails on both sides, good light",
+  missing_grab_bar: "Have a grab bar put in",
+};
+const WHY = {
+  cord: "Cords in a walking path are easy to catch with a foot, especially at night.",
+  rug: "A curled edge catches toes and canes, and an unsecured rug can slide underfoot.",
+  clutter_on_floor: "Things on the floor are hard to see when you're carrying something or it's dark.",
+  raised_threshold: "Even a small lip can trip a foot that doesn't lift as high as it used to.",
+  stair_edge: "Stair edges are hard to judge, especially going down.",
+  missing_grab_bar: "Bathrooms are wet and slippery, and a bar gives you something solid to hold.",
+};
+
+let data = T.loadReport();
+if (!data) { location.replace("home.html"); throw new Error("no report"); }
+T.tabBar("report");   // the other tabs are links back to home.html
+let R = data.report;
+let roomId = (data.room || "Room") + "|" + (data.date || "");
+const frames = data.frames || [{ image: data.image, width: data.width, height: data.height }];
+const mainFrame = data.main || 0;
+const frameOf = b => data.offset ? Math.min(frames.length - 1, Math.max(0, Math.floor(b[0] / data.offset))) : 0;
+const local = b => data.offset ? [b[0] - frameOf(b) * data.offset, b[1], b[2] - frameOf(b) * data.offset, b[3]] : b;
+let detections = data.detections || null;
+let confirmed = [], checks = [], questions = [];
+
+// ── header ── [final] title = the room the user picked, or "Room report"
+let title = "";
+function setTitle() {
+  title = T.reportTitle(data.room);
+  $("title").textContent = title; $("navTitle").textContent = title; document.title = title + " · Threshold";
+}
+setTitle();
+// [v1.0.2] Quick scan: name the room afterwards (only renames; the results stay the same)
+$("nameRoomIco").innerHTML = T.icon("question");
+$("nameRoom").hidden = !(data.source === "scan" && !data.room);
+$("nameRoomBtn").addEventListener("click", () => T.roomSheet(name => {
+  if (!name || name === "Other") { $("nameRoom").hidden = true; return; }
+  const oldId = roomId;
+  data.room = name;
+  roomId = name + "|" + (data.date || "");
+  try {   // move the "Fixed it" checkmarks and drop the unnamed ("Other") summary
+    const f = localStorage.getItem("threshold.fixed." + oldId);
+    if (f) { localStorage.setItem("threshold.fixed." + roomId, f); localStorage.removeItem("threshold.fixed." + oldId); }
+    localStorage.setItem(ROOMS_KEY, JSON.stringify(T.savedRooms().filter(r => !(r.name === "Other" && r.checked === data.date))));
+  } catch (e) {}
+  setTitle(); T.watchNav($("nav"), $("title"));
+  $("nameRoom").hidden = true;
+  T.saveLastReport(data); saveRoom();
+  T.toast(`Saved as ${name}`);
+}, { title: "Which room was this?" }));
+$("when").textContent = [data.date, data.source === "scan" ? "Live scan" : "Photo"].filter(Boolean).join(" · ");
+T.watchNav($("nav"), $("title"));
+const img = $("photoImg");
+img.src = frames[mainFrame].image;
+img.alt = `Your ${data.source === "scan" ? "scan" : "photo"} with hazards marked`;
+
+function build() {
+  const all = T.foldPossible(R.hazards || []).map(h => ({ ...h, name: T.name(h) }));   // [v1.0.1] names the fixture
+  const sev = { high: 0, medium: 1, info: 2 };
+  confirmed = all.filter(h => !isPossible(h) && !T.REMINDERS.has(h.hazard)).sort((a, b) => (sev[a.severity] ?? 9) - (sev[b.severity] ?? 9));
+  checks = all.filter(h => isPossible(h) || T.REMINDERS.has(h.hazard));
+  questions = (R.needs_check || []).map((q, qi) => ({ q, qi, name: q.question || `Is there a grab bar next to the ${q.fixture}?`, boxes: q.grab_bar_boxes || [] }));
+  [...confirmed, ...checks].forEach((h, i) => h.n = i + 1);
+}
+
+// ── score + one-line summary ──
+function firstSentence(s) { const m = String(s || "").match(/^.*?[.!?](\s|$)/); return m ? m[0].trim() : String(s || ""); }
+function renderScore() {
+  const n = Number(R.safety_score), card = $("scoreCard");
+  if (!Number.isFinite(n)) { card.hidden = true; return; }
+  const s = Math.max(0, Math.min(100, Math.round(n)));
+  const left = confirmed.filter(h => !fixed.has(h.hazard)).length;
+  const [label, tone] = s < 40 ? ["Needs attention", "tone-red"] : (s < 70 || confirmed.some(h => h.severity === "high")) ? ["Some concerns", "tone-amber"] : ["Looks good", "tone-good"];
+  const line = confirmed.length ? `${left ? `${left} of ${confirmed.length} left to fix.` : "Everything here is fixed."} ${firstSentence((R.summary || "").replace(/^We found \d+ hazards?\.\s*/, ""))}`
+                                : firstSentence(R.summary) || "We didn't spot any fall hazards.";
+  card.innerHTML = `<div class="score-num ${tone}" aria-hidden="true">${s}<small>of 100</small></div>
+    <div class="score-text"><b>${label}</b><p>${T.esc(line)}</p></div>
+    <span class="sr-only">Safety score ${s} out of 100, ${label}.</span>`;
+}
+
+// ── rows ──
+let fixed = new Set();
+try { fixed = new Set(JSON.parse(localStorage.getItem("threshold.fixed." + roomId) || "[]").map(String)); } catch (e) {}
+const colorOf = (h, check) => check ? "#ff9f0a" : h.severity === "info" ? "#636366" : "#d70015";
+
+function crop(h, check) {
+  const b0 = (h.boxes || [])[0]; if (!b0) return "";
+  const f = frames[frameOf(b0)];
+  const W = f.width || img.naturalWidth, H = f.height || img.naturalHeight;
+  const [x1, y1, x2, y2] = local(b0), m = Math.max(x2 - x1, y2 - y1) * .35;
+  const rx = Math.max(0, x1 - m), ry = Math.max(0, y1 - m), rw = Math.min(W, x2 + m) - rx, rh = Math.min(H, y2 + m) - ry;
+  return `<svg class="crop" viewBox="${rx} ${ry} ${rw} ${rh}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Close-up from your ${data.source === "scan" ? "scan" : "photo"}">
+    <image href="${f.image}" width="${W}" height="${H}"/>
+    <rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${rw / 60}" fill="none" stroke="${colorOf(h, check)}" stroke-width="${rw / 90}" ${check ? `stroke-dasharray="${rw / 30} ${rw / 45}"` : ""}/></svg>`;
+}
+function hazardRow(h, kind) {
+  const check = kind === "check", isFixed = !check && fixed.has(h.hazard);
+  const tone = check ? (h.severity === "info" ? "gray" : "amber") : "red";
+  const fix = SHORT_FIX[h.hazard] || h.fix || "";
+  const steadi = h.steadi_item ? `<p class="quote">CDC STEADI${h.steadi_section ? ", " + T.esc(h.steadi_section) : ""}: “${T.esc(h.steadi_item)}”</p>` : "";
+  return `<div class="hz ${isFixed ? "fixed" : ""}" data-key="${T.esc(h.hazard)}">
+    <div class="hz-row">
+      <button class="row" type="button" aria-expanded="false" aria-controls="hzb-${h.n}">
+        <span class="ico ${tone}">${T.icon(T.HAZARD_ICON[h.hazard] || "warn")}</span>
+        <span class="row-main"><span class="row-title">${T.esc(h.name)}${h.count > 1 ? ` (${h.count})` : ""}</span><span class="row-sub">${T.esc(check ? (h.severity === "info" ? fix : "Not sure. Take a look") : fix)}</span></span>
+        <svg class="chev down" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+      ${check ? "" : `<button class="fix-btn" type="button" data-fix="${T.esc(h.hazard)}" aria-pressed="${isFixed}" aria-label="Fixed it: ${T.esc(h.name)}"><span>${T.icon("check")}</span></button>`}
+    </div>
+    <div class="hz-body" id="hzb-${h.n}" hidden>
+      ${crop(h, check)}
+      ${WHY[h.hazard] ? `<p>${T.esc(WHY[h.hazard])}</p>` : ""}
+      <p><b>${check ? "What to do:" : "Fix:"}</b> ${T.esc(h.fix || fix)}</p>
+      ${steadi}
+    </div></div>`;
+}
+function questionRow(x) {
+  return `<button class="row" type="button" data-q="${x.qi}">
+    <span class="ico amber">${T.icon("question")}</span>
+    <span class="row-main"><span class="row-title">${T.esc(x.name)}</span><span class="row-sub">We couldn't tell. Tap to answer</span></span>
+    <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>`;
+}
+
+function render() {
+  build();
+  renderScore();
+  $("questionsSec").hidden = !questions.length;
+  $("questionList").innerHTML = questions.map(questionRow).join("");
+  $("fixList").innerHTML = confirmed.length ? confirmed.map(h => hazardRow(h, "fix")).join("")
+    : `<div class="card clear-card"><b>No hazards found</b><p>The app can still miss things, so a quick walk through the room is a good idea.</p></div>`;
+  $("checkSec").hidden = !checks.length;
+  $("checkList").innerHTML = checks.map(h => hazardRow(h, "check")).join("");
+  const safe = R.safe_items || [];
+  $("safeSec").hidden = !safe.length;
+  $("safeList").innerHTML = safe.map(s => `<div class="row"><span class="ico">${T.icon("check")}</span><span class="row-main">${T.esc(s)}</span></div>`).join("");
+  img.complete && img.naturalWidth ? drawBoxes() : img.addEventListener("load", drawBoxes, { once: true });
+  saveRoom();
+}
+
+function drawBoxes() {
+  const W = frames[mainFrame].width || img.naturalWidth, H = frames[mainFrame].height || img.naturalHeight;
+  const svg = $("boxes");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const sw = Math.max(4, W / 160), r = sw * 3.6;
+  let html = "";
+  for (const [list, check] of [[confirmed, false], [checks, true]]) for (const h of list) {
+    const color = colorOf(h, check);
+    const own = (h.boxes || []).filter(b => frameOf(b) === mainFrame).map(b => [local(b), check ? "possible" : ""]);
+    const folded = (h.possible_boxes || []).filter(b => frameOf(b) === mainFrame).map(b => [local(b), "dashed"]);
+    [...own, ...folded].forEach(([[x1, y1, x2, y2], extra], j) => {
+      html += `<g class="bx ${extra}" style="--fs:${r * 1.1}px"><rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${sw * 2}" stroke="#fff" stroke-width="${sw + 4}" opacity=".7"/>
+        <rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${sw * 2}" stroke="${color}" stroke-width="${extra ? sw * .6 : sw}"/>
+        ${j === 0 ? `<circle cx="${x1 + r * .4}" cy="${y1 + r * .4}" r="${r}" fill="${color}"/><text x="${x1 + r * .4}" y="${y1 + r * .4}">${h.n}</text>` : ""}</g>`;
+    });
+  }
+  svg.innerHTML = html;
+}
+
+// ── taps: open a row, "Fixed it", questions ──
+document.addEventListener("click", e => {
+  const q = e.target.closest("[data-q]");
+  if (q) { openQuestion(Number(q.dataset.q)); return; }
+  const fb = e.target.closest("[data-fix]");
+  if (fb) { toggleFixed(fb.dataset.fix, fb); return; }
+  const row = e.target.closest(".hz-row .row");
+  if (row) {
+    const hz = row.closest(".hz"), body = hz.querySelector(".hz-body"), open = body.hidden;
+    body.hidden = !open; hz.classList.toggle("open", open); row.setAttribute("aria-expanded", String(open));
+  }
+});
+function toggleFixed(key, btn) {
+  const now = !fixed.has(key);
+  now ? fixed.add(key) : fixed.delete(key);
+  btn.setAttribute("aria-pressed", String(now));
+  btn.closest(".hz").classList.toggle("fixed", now);
+  if (now) T.haptic();
+  try { localStorage.setItem("threshold.fixed." + roomId, JSON.stringify([...fixed])); } catch (e) {}
+  renderScore(); saveRoom();
+}
+
+// Save a short summary for the Home and Rooms tabs.
+function saveRoom() {
+  const name = data.room || "Other";
+  const left = confirmed.filter(h => !fixed.has(h.hazard));
+  const status = left.some(h => h.severity === "high") ? "high" : left.length || checks.length || questions.length ? "med" : "ok";
+  let rooms = T.savedRooms().filter(r => r.name !== name);
+  rooms.push({ name, status, hazards: confirmed.length, fixed: confirmed.length - left.length,
+               checks: checks.length + questions.length, score: Number.isFinite(Number(R.safety_score)) ? Math.round(R.safety_score) : null, checked: data.date });
+  try { localStorage.setItem(ROOMS_KEY, JSON.stringify(rooms)); } catch (e) {}
+}
+
+// ── Grab bar questions (agreed rule), as a sheet ──
+// "Yes" re-sends that grab bar as tier "hazard" (cancels the warning); "No" re-sends without
+// it (becomes "Missing grab bar"). The rules engine makes the new report and score.
+let openQ = null;
+function openQuestion(qi) {
+  const x = questions.find(q => q.qi === qi); if (!x) return;
+  openQ = qi;
+  $("qText").textContent = x.name;
+  $("qPhoto").innerHTML = crop({ boxes: x.q.grab_bar_boxes && x.q.grab_bar_boxes.length ? x.q.grab_bar_boxes : [x.q.fixture_box] }, true).replace('class="crop"', 'class="q-photo"');
+  T.openSheet($("qSheet"));
+}
+$("qSheet").addEventListener("click", e => {
+  if (e.target.closest("[data-close]")) return T.closeSheet($("qSheet"));
+  const b = e.target.closest("[data-answer]");
+  if (b && openQ !== null) { T.haptic(); T.closeSheet($("qSheet")); answer(openQ, b.dataset.answer); }
+});
+let answering = false;
+async function answer(qi, ans) {
+  const q = (R.needs_check || [])[qi];
+  if (!q || answering) return;
+  answering = true;
+  try {
+    const resend = T.answerDetections(detections, q, ans);
+    if (resend) {
+      const w = data.offset ? frames.length * data.offset : (R.image_width || data.width);
+      const h = data.offset ? Math.max(...frames.map(f => f.height)) : (R.image_height || data.height);
+      R = await T.analyzeDetections(w, h, resend, data.room, data.source === "scan" ? !!data.bathroom_cue : undefined);
+      detections = resend;
+    } else {
+      const rest = (R.needs_check || []).filter((_, i) => i !== qi);
+      R = ans === "no" ? { ...R, hazards: [...(R.hazards || []), q.if_no].filter(Boolean), needs_check: rest }
+                       : { ...R, needs_check: rest, safe_items: [...(R.safe_items || []), `Grab bar found near ${q.fixture}`] };
+    }
+    data.report = R; data.detections = detections;
+    T.saveLastReport(data);
+    render();
+    const next = (R.needs_check || [])[0];
+    T.say((ans === "yes" ? "Thanks. I'll count that grab bar." : "Thanks. I added a missing grab bar to your list.") + (next ? " " + T.questionSpeech(next) : ""));
+    if (next) T.startListening();
+  } catch (err) {
+    T.say("Sorry, I couldn't update the report. Please try again.");
+    T.toast("Couldn't update the report. Try again.");
+  } finally { answering = false; }
+}
+
+// ── Voice: one control in the nav bar reads the report, then listens ──
+function fullSpeech() {
+  const q = (R.needs_check || [])[0];
+  return T.reportSpeech(R) + (q ? " " + T.questionSpeech(q) : "");
+}
+function readAloud() {
+  $("tapHear").hidden = true;
+  T.unlockVoice(fullSpeech());
+  T.startListening();   // listens after it finishes talking (yes / no, repeat, done)
+}
+T.voiceControl($("voiceBtn"), "read", readAloud);
+$("tapHear").addEventListener("click", readAloud);
+// Phones only allow speech after a tap on THIS page: if it's blocked, ask for that tap.
+T.onSpeechBlocked = () => { $("tapHear").hidden = false; };
+T.onCommand(t => {
+  const q = (R.needs_check || [])[0];
+  if (q && /\b(yes|yeah|yep|yup|correct|there is)\b/.test(t)) { answer(0, "yes"); return true; }
+  if (q && (/\b(no|nope)\b/.test(t) || /there isn'?t/.test(t))) { answer(0, "no"); return true; }
+  if (/what'?s here|read|report|what did you find/.test(t)) { T.say(fullSpeech()); return true; }
+  if (/\b(done|home|finish|finished)\b/.test(t)) { location.href = "home.html"; return true; }
+  if (/\b(next|scan|another)\b/.test(t)) { location.href = "home.html#scan"; return true; }
+  return false;
+});
+
+// ── Share ──
+$("shareBtn").addEventListener("click", async () => {
+  const lines = [`Threshold: ${title}`, data.date || "", ""];
+  if (Number.isFinite(Number(R.safety_score))) lines.push(`Safety score: ${Math.round(R.safety_score)}/100`);
+  if (R.summary) lines.push(R.summary);
+  if (confirmed.length) { lines.push("", "To fix:"); confirmed.forEach(h => lines.push(`${fixed.has(h.hazard) ? "✓" : "•"} ${h.name}: ${h.fix}`)); }
+  if (checks.length) { lines.push("", "Worth a quick check:"); checks.forEach(h => lines.push(`• ${h.name}`)); }
+  lines.push("", "Threshold uses the CDC STEADI home safety checklist. It can miss things.");
+  const text = lines.join("\n");
+  if (navigator.share) { try { await navigator.share({ title: "Threshold report", text }); } catch (e) {} }
+  else { try { await navigator.clipboard.writeText(text); T.toast("Report copied"); } catch (e) { window.print(); } }
+});
+
+render();
+setTimeout(() => {   // try to read it right away (works if the browser allows it)
+  T.say(fullSpeech());
+  if ((R.needs_check || []).length) { T.startListening(); setTimeout(() => openQuestion(0), 400); }
+}, 900);
+</script>
+</body>
+</html>

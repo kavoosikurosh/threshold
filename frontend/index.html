@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Threshold</title>
+<meta name="theme-color" content="#f2f2f7">
+<link rel="manifest" href="static/manifest.json">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Threshold">
+<style>body { margin: 0; background: #f2f2f7; } @media (prefers-color-scheme: dark) { body { background: #000; } }</style>
+<script>
+  // [merge-v2] GET / lands here. First visit -> welcome.html; after that -> home.html.
+  // The query string is passed on (?mode=scan from the Siri Shortcut, ?debug=1).
+  let welcomed = false;
+  try { welcomed = !!localStorage.getItem("threshold.welcomed"); } catch (e) {}
+  location.replace((welcomed ? "home.html" : "welcome.html") + location.search + location.hash);
+</script>
+</head>
+<body></body>
+</html>

@@ -1,0 +1,67 @@
+# Python environments
+venv/
+.venv/
+env/
+threshold_env/
+
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.cache/
+
+# Secrets and local settings
+.env
+.env.*
+*.key
+*.pem
+cert.pem
+.cloudflared/
+
+# Model weights (not included, see README)
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.engine
+models/
+
+# Datasets, training runs, evaluation output
+dataset*/
+datasets/
+runs/
+eval_out/
+home_photos/
+home_labeled/
+test_photos/
+test_arya/
+tune_arya/
+*.zip
+*.log
+
+# Photos and videos: never commit (they show real homes)
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.HEIC
+*.JPG
+*.JPEG
+*.PNG
+*.webp
+*.gif
+*.mp4
+*.mov
+*.MOV
+*.avi
+*.mkv
+*.mjpeg
+# ...except the app's own icons
+!frontend/static/icons/*.png
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

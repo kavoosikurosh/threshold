@@ -1,0 +1,4 @@
+# Same line endings for everyone (Windows/Mac), so merges don't show fake changes
+* text=auto
+*.pt binary
+*.bat text eol=crlf

@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+httpx
+pytest
+python-multipart
+pillow
+pillow-heif
+# detector (GPU: install torch from https://pytorch.org first, e.g. the cu121 build)
+torch
+transformers
+ultralytics

@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Threshold</title>
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="static/manifest.json">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Threshold">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="static/app.css">
+<script src="static/threshold.js"></script>
+<style>
+  /* ---------- Scan view: full screen camera, like the iPhone camera app ---------- */
+  .scan { position: fixed; inset: 0; z-index: 60; background: #000; color: #fff; display: flex; flex-direction: column; }
+  .scan-nav { padding-top: var(--safe-t); background: rgba(0,0,0,.6); }
+  .scan-nav .nav-in { grid-template-columns: 1fr auto 1fr; }
+  .scan-nav .nav-btn { color: #fff; }
+  .scan-nav .nav-title { opacity: 1; color: #fff; }
+  .scan-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; }
+  .scan-stage video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .scan-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .scan-status { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); border-radius: 16px;
+                 padding: 4px 12px; font-size: .882rem; white-space: nowrap; }
+  .scan-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34c759; margin-right: 6px; vertical-align: 1px; }
+  .caption { position: absolute; left: 16px; right: 16px; bottom: 8px; margin: 0; background: rgba(0,0,0,.72); border-radius: var(--radius);
+             padding: 8px 12px; font-size: 1rem; line-height: 1.35; transition: opacity .4s;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* [v1.0.1] one short line */
+  .caption.fade { opacity: 0; }
+  .heard { margin: 0 0 8px; font-size: .882rem; color: rgba(235,235,245,.7); }
+  .scan-panel { background: #1c1c1e; padding: 12px var(--gutter) calc(var(--safe-b) + 12px); max-height: 42vh; overflow-y: auto; }
+  .found { list-style: none; margin: 0 0 12px; padding: 0; }
+  .found li { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 4px 0; font-size: 1rem; }
+  .found li + li { border-top: .5px solid rgba(84,84,88,.65); }
+  .found img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex: none; }
+  .found .tag { margin-left: auto; font-size: .765rem; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(255,69,58,.2); color: #ff6961; }
+  .found .tag.check { background: rgba(255,159,10,.2); color: #ffb340; }
+  .found li.none { color: rgba(235,235,245,.6); }
+  .scan .btn.primary { background: #fff; color: #000; }
+  .unlock { display: block; width: 100%; min-height: 48px; margin: 0 0 12px; border: 0; border-radius: var(--radius); background: #3a3a3c; color: #fff; font-weight: 600; }
+  .home-actions { margin-top: 24px; }
+  .intro b { display: block; font-size: 1.059rem; margin-bottom: 4px; }
+  .intro p { margin: 0; color: var(--label2); }
+</style>
+<script>
+  // First launch goes to the welcome screen (keeps ?mode=scan / ?debug=1).
+  try { if (!localStorage.getItem("threshold.welcomed")) location.replace("welcome.html" + location.search + location.hash); } catch (e) {}
+</script>
+</head>
+<body>
+
+<header class="nav" id="nav">
+  <div class="nav-in">
+    <div class="nav-left"></div>
+    <div class="nav-title" id="navTitle">Home</div>
+    <div class="nav-right"></div>
+  </div>
+</header>
+
+<main class="page">
+  <!-- ===== Home tab ===== -->
+  <section id="view-home" data-view="home" aria-labelledby="homeTitle">
+    <h1 class="large-title" id="homeTitle">Home</h1>
+    <div class="card" id="homeCard"></div>
+    <p class="note" id="homeMsg" role="status" hidden></p>
+    <div class="home-actions">
+      <button class="btn primary" type="button" id="scanBtn">Scan a room</button>
+      <a class="btn plain" href="camera.html" id="photoLink">Take a photo instead</a>
+    </div>
+    <h2 class="group-head" id="nextHead">Next room to check</h2>
+    <div class="group" id="nextList"></div>
+  </section>
+
+  <!-- ===== Rooms tab ===== -->
+  <section id="view-rooms" data-view="rooms" aria-labelledby="roomsTitle" hidden>
+    <h1 class="large-title" id="roomsTitle">Rooms</h1>
+    <div class="group" id="roomList"></div>
+    <p class="group-foot">Tap a room to check it. Start with the bathroom, bedroom, and stairs. That's where most falls at home happen.</p>
+  </section>
+
+  <!-- ===== Settings tab ===== -->
+  <section id="view-settings" data-view="settings" aria-labelledby="settingsTitle" hidden>
+    <h1 class="large-title" id="settingsTitle">Settings</h1>
+    <h2 class="group-head">Voice</h2>
+    <div class="group">
+      <label class="row no-icon" for="voiceSwitch">
+        <span class="row-main"><span class="row-title">Speak results out loud</span></span>
+        <span class="switch"><input type="checkbox" id="voiceSwitch" role="switch"><span></span></span>
+      </label>
+      <button class="row no-icon action" type="button" id="testVoiceBtn">Test voice</button>
+    </div>
+    <p class="group-foot" id="voiceFoot">If you hear nothing, turn the volume up and make sure the iPhone isn't on silent.</p>
+
+    <h2 class="group-head">Your rooms</h2>
+    <div class="group">
+      <button class="row destructive" type="button" id="clearBtn">Clear saved rooms</button>
+    </div>
+    <p class="group-foot">Removes the results and "Fixed it" checkmarks saved on this phone.</p>
+
+    <h2 class="group-head">About</h2>
+    <div class="group">
+      <div class="row no-icon"><span class="row-main"><span class="row-title">Threshold</span></span><span class="row-detail">Version 1.0</span></div>
+      <a class="row no-icon" href="https://www.cdc.gov/steadi/" target="_blank" rel="noopener">
+        <span class="row-main"><span class="row-title">CDC STEADI</span><span class="row-sub">Where the checklist and fixes come from</span></span>
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+    <p class="group-foot">Threshold looks for common fall hazards from the CDC STEADI "Check for Safety" home checklist. It can miss things, and it is not a replacement for a professional home safety assessment.</p>
+  </section>
+</main>
+
+<!-- Room actions (Rooms tab) -->
+<section class="sheet" id="roomActions" aria-labelledby="roomActionsTitle">
+  <div class="grabber" aria-hidden="true"></div>
+  <div class="sheet-head"><button class="nav-btn" type="button" data-close>Cancel</button><h2 id="roomActionsTitle">Room</h2><span></span></div>
+  <div class="group" id="roomActionList"></div>
+</section>
+
+<!-- Confirm: clear saved rooms -->
+<section class="sheet" id="clearSheet" aria-labelledby="clearTitle">
+  <div class="grabber" aria-hidden="true"></div>
+  <div class="sheet-head"><button class="nav-btn" type="button" data-close>Cancel</button><h2 id="clearTitle">Clear saved rooms?</h2><span></span></div>
+  <p class="lead">This removes every room's results from this phone.</p>
+  <div class="group"><button class="row destructive" type="button" id="clearConfirm">Clear saved rooms</button></div>
+</section>
+
+<!-- ===== Scan view (on this page, so the Scan tap also unlocks speech on iPhone) ===== -->
+<section class="scan" id="scanPanel" aria-label="Scan a room" hidden>
+  <header class="scan-nav">
+    <div class="nav-in">
+      <div class="nav-left"><button class="nav-btn" type="button" id="scanCancel">Cancel</button></div>
+      <div class="nav-title" id="scanTitle">Scan</div>
+      <div class="nav-right"><button class="nav-btn voice-ctl" type="button" id="scanVoice"></button></div>
+    </div>
+  </header>
+  <div class="scan-stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <span class="scan-status" id="scanStatus" role="status">Starting camera…</span>
+    <p class="caption" id="caption" aria-live="polite" data-one-line hidden></p>
+  </div>
+  <div class="scan-panel">
+    <button class="unlock" type="button" id="voiceUnlock" hidden>Tap to hear me talk</button>
+    <p class="heard" id="heard" hidden></p>
+    <ul class="found" id="foundList"></ul>
+    <button class="btn primary" type="button" id="scanDone">Done</button>
+  </div>
+</section>
+
+<script>
+// =============================================================================
+// [final] Home, Rooms and Settings are tabs of this one page (instant switching, and
+// a Scan tap from any tab starts the camera + voice inside the tap, as iPhones need).
+// Report and Camera are separate pages. home.html#rooms / #settings open a tab;
+// home.html#scan opens the room picker; ?mode=scan starts scanning right away (Siri).
+// =============================================================================
+const T = Threshold;
+const $ = id => document.getElementById(id);
+const VIEWS = ["home", "rooms", "settings"];
+const TITLES = { home: "Home", rooms: "Rooms", settings: "Settings" };
+let view = "home";
+
+function showView(v) {
+  if (!VIEWS.includes(v)) v = "home";
+  view = v;
+  VIEWS.forEach(x => $("view-" + x).hidden = x !== v);
+  $("navTitle").textContent = TITLES[v];
+  T.setTab(v);
+  if (location.hash.slice(1) !== v) history.replaceState(null, "", (v === "home" ? location.pathname + location.search : "#" + v));
+  scrollTo(0, 0);
+  T.watchNav($("nav"), $("view-" + v).querySelector(".large-title"));
+  if (v === "rooms") renderRooms();
+  if (v === "settings") $("voiceSwitch").checked = T.voice.on;
+}
+T.tabBar("home", tab => {
+  if (tab === "scan") { pickRoomAndScan(); return true; }
+  if (tab === "report") return false;   // a real link to report.html
+  showView(tab); return true;
+});
+
+// ---------- rooms data ----------
+const DEFAULT_ROOMS = ["Bathroom", "Bedroom", "Kitchen", "Living room", "Hallway", "Stairs"];
+function allRooms() {
+  const saved = T.savedRooms();
+  const list = DEFAULT_ROOMS.map(n => saved.find(r => r.name === n) || { name: n, status: "todo" });
+  saved.filter(r => !DEFAULT_ROOMS.includes(r.name)).forEach(r => list.push(r));
+  return list;
+}
+function roomSub(r) {
+  if (r.status === "todo") return "Not checked yet";
+  const left = (r.hazards || 0) - (r.fixed || 0);
+  const what = r.status === "ok" ? "All clear" : left > 0 ? `${left} to fix` : r.checks ? `${r.checks} to check` : "All fixed";
+  return `${what}${r.checked ? " · " + r.checked : ""}`;
+}
+function roomRow(r) {
+  const tone = r.status === "high" ? "red" : r.status === "med" ? "amber" : r.status === "ok" ? "" : "plain";
+  return `<button class="row" type="button" data-room="${T.esc(r.name)}">
+    <span class="ico ${tone}">${T.icon(T.roomIcon(r.name))}</span>
+    <span class="row-main"><span class="row-title">${T.esc(r.name)}</span><span class="row-sub">${T.esc(roomSub(r))}</span></span>
+    <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>`;
+}
+
+function renderHome() {
+  const rooms = allRooms(), done = rooms.filter(r => r.status !== "todo");
+  const card = $("homeCard");
+  if (!done.length) {
+    card.className = "card intro";
+    card.innerHTML = `<b>Check your first room</b><p>Scan a room with your camera. Threshold points out things that could make you fall, with a simple fix for each.</p>`;
+  } else {
+    const scores = done.map(r => r.score).filter(Number.isFinite);
+    const s = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+    const left = done.reduce((n, r) => n + Math.max(0, (r.hazards || 0) - (r.fixed || 0)), 0);
+    const [label, tone] = s === null ? ["Checked", ""] : s < 40 ? ["Needs attention", "tone-red"] : s < 70 ? ["Some concerns", "tone-amber"] : ["Mostly safe", "tone-good"];
+    card.className = "card score";
+    card.innerHTML = `<div class="score-num ${tone}" aria-hidden="true">${s ?? "–"}<small>of 100</small></div>
+      <div class="score-text"><b>${label}</b><p>${done.length} of ${rooms.length} rooms checked. ${left ? `${left} ${left === 1 ? "thing" : "things"} left to fix.` : "Nothing left to fix."}</p></div>
+      <span class="sr-only">Home score ${s ?? "not available"} out of 100, ${label}.</span>`;
+  }
+  const next = rooms.filter(r => r.status === "todo").slice(0, 2);
+  $("nextHead").hidden = $("nextList").hidden = !next.length;
+  $("nextList").innerHTML = next.map(roomRow).join("");
+}
+function renderRooms() { $("roomList").innerHTML = allRooms().map(roomRow).join(""); }
+
+// Tap a room: scan it, take a photo, or open its last report.
+document.addEventListener("click", e => {
+  const row = e.target.closest("#nextList [data-room], #roomList [data-room]");
+  if (!row) return;
+  const name = row.dataset.room, last = T.loadReport();
+  $("roomActionsTitle").textContent = name;
+  $("roomActionList").innerHTML = `
+    <button class="row" type="button" data-act="scan"><span class="ico">${T.icon("scan")}</span><span class="row-main">Scan the ${T.esc(name.toLowerCase())}</span></button>
+    <a class="row" href="camera.html?room=${encodeURIComponent(name)}"><span class="ico plain">${T.icon("camera")}</span><span class="row-main">Take a photo instead</span></a>
+    ${last && last.room === name ? `<a class="row" href="report.html"><span class="ico plain">${T.icon("report")}</span><span class="row-main">See the last report</span></a>` : ""}`;
+  $("roomActions").dataset.room = name;
+  T.openSheet($("roomActions"));
+});
+$("roomActions").addEventListener("click", e => {
+  if (e.target.closest("[data-close]")) return T.closeSheet($("roomActions"));
+  if (e.target.closest('[data-act="scan"]')) { const room = $("roomActions").dataset.room; T.closeSheet($("roomActions")); beginScan(room); }
+});
+
+// ---------- settings ----------
+$("voiceSwitch").addEventListener("change", e => {
+  T.haptic();
+  T.setVoiceOn(e.target.checked);
+  if (e.target.checked) T.unlockVoice("Voice is on.");
+});
+$("testVoiceBtn").addEventListener("click", () => {
+  T.haptic();
+  if (!T.testVoice()) { $("voiceFoot").textContent = "This browser can't speak out loud."; return; }
+  $("voiceFoot").textContent = "You should hear “Hello, I'm Threshold.” No sound? Turn the volume up, and make sure the iPhone isn't on silent.";
+});
+$("clearBtn").addEventListener("click", () => T.openSheet($("clearSheet")));
+$("clearSheet").addEventListener("click", e => { if (e.target.closest("[data-close]")) T.closeSheet($("clearSheet")); });
+$("clearConfirm").addEventListener("click", () => {
+  try {
+    Object.keys(localStorage).filter(k => k === "threshold.rooms" || k === "threshold.lastReport" || k.startsWith("threshold.fixed.")).forEach(k => localStorage.removeItem(k));
+    sessionStorage.removeItem("threshold.report");
+  } catch (e) {}
+  T.closeSheet($("clearSheet"));
+  T.haptic(); T.toast("Saved rooms cleared");
+  renderHome(); renderRooms();
+});
+
+function homeMessage(text) { $("homeMsg").textContent = text || ""; $("homeMsg").hidden = !text; }
+
+// =============================================================================
+// Scan mode + voice (shared code in static/threshold.js)
+// Pick a room (sheet) -> the tap on the room starts the spoken welcome (unlocks speech
+// on iPhone), voice commands, the camera and Scan mode. A hazard type is added (and
+// spoken) once it shows up in 2 of the last 3 frames. "Done" builds ONE report from the
+// frames where each hazard was confirmed and opens report.html, like the photo flow.
+// [final] The room is sent with every frame (stricter toilet/tub/grab bar outside
+// bathrooms). "Missing grab bar" is only a sure finding in a scan if a toilet/tub was in
+// 2 of 3 frames AND there was a bathroom cue (sink, toilet + tub, bath mat, or the room
+// picked is Bathroom).
+// =============================================================================
+const WELCOME = "I'm looking for fall hazards. Slowly move your phone around the room.";
+const scanPanel = $("scanPanel"), video = $("video"), overlay = $("overlay");
+const scan = { stream: null, timer: null, inFlight: null, lastSent: 0, frames: 0, found: new Map(), room: null,
+               announced: new Map(), recent: [], best: new Map(), frameData: {}, last: null, fxConfirmed: false, cueSeen: false };
+const isBathroom = room => /bath|restroom|toilet|washroom|powder/i.test(room || "");
+
+function pickRoomAndScan() {
+  T.roomSheet(room => beginScan(room), { title: "Which room?", lead: "I'll use this to check the right things.", quick: true });   // [v1.0.2]
+}
+// Runs inside the tap that picked the room.
+function beginScan(room) {
+  T.unlockVoice(WELCOME); T.startListening(); startScan({ room });
+}
+$("scanBtn").addEventListener("click", () => { T.haptic(); pickRoomAndScan(); });
+$("scanCancel").addEventListener("click", () => { stopScan(); scanPanel.hidden = true; T.stopListening(); T.stopSpeaking(); });
+$("scanDone").addEventListener("click", () => { T.haptic(); finishScan(); });
+T.voiceControl($("scanVoice"), "toggle");
+T.bindVoiceUI(() => { T.unlockVoice(scan.timer ? WELCOME : "Voice is on."); T.startListening(); });
+
+function setScanStatus(text, live) { $("scanStatus").innerHTML = (live ? '<span class="dot"></span>' : "") + T.esc(text); }
+
+// opts.auto = started without a tap (?mode=scan or a voice command): never opens anything else by itself
+async function startScan(opts = {}) {
+  homeMessage("");
+  if (scan.timer) return;
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (opts.auto) return;
+    homeMessage("Live scan needs the secure (https) link. You can take a photo instead.");
+    T.say("Live scan needs the secure link. You can take a photo instead.");
+    return;
+  }
+  const room = opts.room && opts.room !== "Other" ? opts.room : null;
+  Object.assign(scan, { inFlight: null, lastSent: 0, frames: 0, found: new Map(), announced: new Map(), room,
+                        recent: [], best: new Map(), frameData: {}, last: null, fxConfirmed: false, cueSeen: false });
+  $("scanTitle").textContent = room ? `Scanning ${room.toLowerCase()}` : "Scanning";
+  $("voiceUnlock").hidden = !(T.voice.on && !T.voice.unlocked);   // auto-started: speech needs one tap
+  renderFound();
+  setScanStatus("Starting camera…", false);
+  scanPanel.hidden = false;
+  try {
+    scan.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    video.srcObject = scan.stream;
+    await video.play();
+    T.dbg(`camera on, room: ${room || "not picked"}`);
+    setScanStatus("Looking…", true);
+    scan.timer = setInterval(scanTick, 400);
+  } catch (err) {
+    T.dbg(`camera error: ${err && err.name}`);
+    stopScan(); scanPanel.hidden = true;
+    homeMessage(opts.auto ? "Tap Scan a room to turn on the camera." : "We couldn't open the camera. You can take a photo instead.");
+    if (!opts.auto) T.say("I couldn't open the camera. You can take a photo instead.");
+  }
+}
+
+function stopScan() {
+  clearInterval(scan.timer); scan.timer = null;
+  cancelAnimationFrame(scan.raf); scan.raf = 0; scan.boxes = null;   // [speed]
+  if (scan.stream) scan.stream.getTracks().forEach(t => t.stop());
+  scan.stream = null; video.srcObject = null;
+  overlay.getContext("2d").clearRect(0, 0, overlay.width, overlay.height);
+}
+
+function scanTick() {
+  if (scan.inFlight || video.readyState < 2 || Date.now() - scan.lastSent < T.SCAN_EVERY_MS) return;
+  scan.lastSent = Date.now();
+  const frame = T.shrinkToCanvas(video, video.videoWidth, video.videoHeight, T.SCAN_MAX_SIDE);
+  scan.inFlight = (async () => {
+    try {
+      const report = await T.analyzeImage(await T.canvasToBlob(frame, 0.85), scan.room);
+      const idx = scan.frames++;
+      scan.last = { idx, frame, report };
+      drawOverlay(report, frame.width);
+      mergeFound(report, frame, idx);
+      renderFound();
+    } catch (err) {
+      setScanStatus("Connection problem, still trying…", true);
+    } finally { scan.inFlight = null; }
+  })();
+}
+
+// [speed] The newest boxes are held on the live view, then fade out, redrawn every screen
+// refresh, so they bridge the wait for the next frame instead of blinking.
+// The video is letterboxed (object-fit: contain), so boxes are drawn in the video's area.
+function drawOverlay(report, frameWidth) {
+  scan.boxes = { hazards: T.foldPossible(liveHazards(report)), width: report.image_width || frameWidth, at: performance.now() };
+  if (!scan.raf) scan.raf = requestAnimationFrame(paintOverlay);
+}
+function paintOverlay() {
+  scan.raf = 0;
+  if (!scan.boxes) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.round(overlay.clientWidth * dpr), H = Math.round(overlay.clientHeight * dpr);
+  if (overlay.width !== W || overlay.height !== H) { overlay.width = W; overlay.height = H; }
+  const c = overlay.getContext("2d");
+  c.clearRect(0, 0, W, H);
+  const vw = video.videoWidth || W, vh = video.videoHeight || H, k = Math.min(W / vw, H / vh);
+  const dw = vw * k, dh = vh * k, ox = (W - dw) / 2, oy = (H - dh) / 2;
+  const age = performance.now() - scan.boxes.at;
+  const alpha = age < T.BOX_HOLD_MS ? 1 : Math.max(0, 1 - (age - T.BOX_HOLD_MS) / T.BOX_FADE_MS);
+  if (alpha > 0) {
+    c.save(); c.globalAlpha = alpha; c.translate(ox, oy);
+    T.drawHazards(c, dw, dh, scan.boxes.hazards, dw / scan.boxes.width);
+    c.restore();
+    scan.raf = requestAnimationFrame(paintOverlay);   // keep animating while visible
+  }
+}
+
+// Which detections a hazard type needs to be rebuilt in the final report.
+const classesFor = type => (type === "missing_grab_bar" || type.startsWith("q:")) ? ["toilet", "tub", "grab_bar"] : [type];
+
+// [final] bathroom cue for this scan (see the comment at the top of Scan mode)
+function bathroomCueOK() { return scan.fxConfirmed && (scan.cueSeen || isBathroom(scan.room)); }
+// A sure "Missing grab bar" from one frame stays a "maybe" until the scan has the cue.
+function liveHazards(report) {
+  return (report.hazards || []).map(h => h.hazard === "missing_grab_bar" && !T.isPossible(h) && !bathroomCueOK()
+    ? { ...h, tier: "possible hazard" } : h);
+}
+
+function mergeFound(report, frame, idx) {
+  // [scan-confirm] remember which hazard types (and grab bar questions) the last frames saw
+  const dets = report.detections || [];
+  const types = new Set((report.hazards || []).map(hz => hz.hazard));
+  (report.needs_check || []).forEach(q => types.add("q:" + q.fixture));
+  const fixtures = dets.filter(d => d.class_name === "toilet" || d.class_name === "tub");
+  if (fixtures.length) types.add("fx");
+  scan.recent.push(types); if (scan.recent.length > T.CONFIRM_WINDOW) scan.recent.shift();
+  const seenIn = type => scan.recent.filter(s => s.has(type)).length;
+  if (seenIn("fx") >= T.CONFIRM_FRAMES) scan.fxConfirmed = true;
+  // a sink, bath mat (rug) or the other fixture NEAR a toilet/tub (same rule as the server's photo check)
+  const near = (f, d) => { const w = f.box[2] - f.box[0], h = f.box[3] - f.box[1];
+    return !(d.box[2] < f.box[0] - w || d.box[0] > f.box[2] + w || d.box[3] < f.box[1] - h || d.box[1] > f.box[3] + h); };
+  if (fixtures.some(f => dets.some(d => ["sink", "rug", "toilet", "tub"].includes(d.class_name) && d.class_name !== f.class_name && near(f, d))))
+    scan.cueSeen = true;
+  if (types.has("stair_edge")) T.dbg("stairs in this frame");
+  if (fixtures.length) T.dbg(`toilet/tub in this frame. 2 of 3 frames: ${scan.fxConfirmed}, bathroom cue: ${scan.cueSeen || isBathroom(scan.room)}`);
+  const fresh = [];   // new finds in this frame -> ONE spoken message
+  let used = false;
+  for (const hz of liveHazards(report)) {
+    const n = seenIn(hz.hazard);
+    if (n < T.CONFIRM_FRAMES) { T.dbg(`${hz.hazard}: seen in ${n} of the last ${scan.recent.length} frames, not added yet`); continue; }
+    const old = scan.found.get(hz.hazard);
+    const better = !old || (T.isPossible(old) && !T.isPossible(hz)) || (T.isPossible(old) === T.isPossible(hz) && (hz.confidence || 0) > (old.confidence || 0));
+    if (!better) continue;
+    const t = T.shrinkToCanvas(frame, frame.width, frame.height, 720);
+    T.drawHazards(t.getContext("2d"), t.width, t.height, [hz], t.width / (report.image_width || frame.width));
+    scan.found.set(hz.hazard, { ...hz, count: Math.max(T.count(hz), old ? T.count(old) : 0), thumb: t.toDataURL("image/jpeg", 0.8) });
+    scan.best.set(hz.hazard, idx); used = true;
+    const line = announceLine(hz); if (line) fresh.push(line);
+  }
+  for (const q of report.needs_check || []) {   // [merge-v2] grab bar questions: asked on the report
+    const key = "q:" + q.fixture;
+    if (seenIn(key) < T.CONFIRM_FRAMES || scan.best.has(key)) continue;
+    scan.best.set(key, idx); used = true;
+    fresh.push(`I may have seen a grab bar by the ${q.fixture}. I'll ask you about it at the end.`);
+  }
+  // keep the frame if it has something we use (incl. a sink, for the bathroom cue)
+  if (used) scan.frameData[idx] = { image: frame.toDataURL("image/jpeg", 0.8), width: frame.width, height: frame.height, detections: dets };
+  if (fresh.length) T.say(fresh.join(" "), { queue: true });
+}
+
+// [voice] Say each NEW hazard once (and once more if a "maybe" becomes a sure find).
+function announceLine(hz) {
+  const before = scan.announced.get(hz.hazard);
+  if (before === "hazard" || (before && T.isPossible(hz))) return "";
+  scan.announced.set(hz.hazard, T.isPossible(hz) ? "possible" : "hazard");
+  const [name, fix] = T.spokenParts(hz);
+  return T.isPossible(hz) ? `There might be ${name} here. Take a look.` : `I see ${name}. ${T.capFirst(fix)}.`;
+}
+
+function renderFound() {
+  const items = [...scan.found.values()].sort((a, b) => T.isPossible(a) - T.isPossible(b));
+  const n = items.filter(hz => !T.isPossible(hz) && !T.REMINDERS.has(hz.hazard)).length;
+  if (scan.timer) setScanStatus(n ? `Looking… ${n} found` : "Looking…", true);
+  $("foundList").innerHTML = items.length
+    ? items.map(hz => {
+        const check = T.isPossible(hz) || T.REMINDERS.has(hz.hazard);
+        return `<li><img src="${hz.thumb}" alt=""><span>${T.esc(T.name(hz))}</span><span class="tag ${check ? "check" : ""}">${check ? "Check" : "Hazard"}</span></li>`;
+      }).join("")
+    : `<li class="none">Nothing found yet. Move slowly. Point at the floor, doorways, stairs, and around the toilet and tub.</li>`;
+}
+
+// [merge-v2] ONE report for the whole scan, made by the rules engine (/analyze), so a scan
+// gets a safety score, a summary and grab bar questions just like a photo. Each hazard comes
+// from the frame where it was confirmed. Frames are laid side by side (x + frame * OFFSET),
+// so boxes from different frames never touch (the grab bar rule looks at what's nearby).
+const OFFSET = 100000;
+async function finishScan() {
+  if (!scan.frames && scan.inFlight) { setScanStatus("One moment, still checking…", true); await scan.inFlight; }
+  stopScan();
+  setScanStatus("Making your report…", false);
+  T.stopListening();
+  if (!scan.frames) { scanPanel.hidden = true; homeMessage("I didn't get to look yet. Try again, and hold the phone still for a few seconds."); return; }
+  let used = [...new Set(scan.best.values())].sort((a, b) => a - b);
+  if (!used.length && scan.last) {   // nothing found: the report still shows the last frame
+    used = [scan.last.idx];
+    scan.frameData[scan.last.idx] = { image: scan.last.frame.toDataURL("image/jpeg", 0.8), width: scan.last.frame.width,
+                                      height: scan.last.frame.height, detections: [] };
+  }
+  const frames = used.map(i => scan.frameData[i]);
+  const dets = [], seen = new Set();
+  for (const [type, idx] of scan.best) {
+    const fi = used.indexOf(idx);
+    for (const d of scan.frameData[idx].detections) {
+      if (!classesFor(type).includes(d.class_name)) continue;
+      const box = [d.box[0] + fi * OFFSET, d.box[1], d.box[2] + fi * OFFSET, d.box[3]];
+      const key = d.class_name + box.join(",");
+      if (!seen.has(key)) { seen.add(key); dets.push({ ...d, box }); }
+    }
+  }
+  let report;
+  try { report = await T.analyzeDetections(used.length * OFFSET, Math.max(...frames.map(f => f.height)), dets, scan.room, bathroomCueOK()); }
+  catch (err) { scanPanel.hidden = true; homeMessage("Sorry, I couldn't make the report (" + err.message + "). Please try again."); return; }
+  // main photo = the frame with the most confident hazards
+  const perFrame = frames.map((_, i) => (report.hazards || []).filter(h => !T.isPossible(h) && (h.boxes || []).some(b => Math.floor(b[0] / OFFSET) === i)).length);
+  const main = perFrame.indexOf(Math.max(...perFrame));
+  // [final] the report is titled with the room the user picked (no more guessing "Bathroom")
+  const data = { room: scan.room, bathroom_cue: bathroomCueOK(), date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+                 source: "scan", offset: OFFSET, frames, main, detections: dets, report,
+                 image: frames[main].image, width: frames[main].width, height: frames[main].height };
+  try { sessionStorage.setItem("threshold.report", JSON.stringify(data)); }
+  catch (e) { scanPanel.hidden = true; homeMessage("That scan was too big to show. Please try a shorter scan."); return; }
+  T.saveLastReport(data);
+  await T.speechIdle(4000);
+  location.href = "report.html";
+}
+
+// [voice] commands on this page (repeat / stop come from threshold.js)
+const ROOM_WORDS = { bathroom: "Bathroom", bedroom: "Bedroom", kitchen: "Kitchen", "living room": "Living room", hallway: "Hallway", hall: "Hallway", stairs: "Stairs", staircase: "Stairs" };
+T.onCommand(t => {
+  if (/what'?s here|what is here|what do you see|what did you find/.test(t)) {
+    const sure = [...scan.found.values()].filter(hz => !T.isPossible(hz));
+    T.say(!scan.timer ? "Tap Scan a room, and I'll look around the room with you." :
+      sure.length ? `So far I see ${T.speakList(sure.map(hz => T.spokenParts(hz)[0]))}.` : "I haven't found anything yet. Keep moving slowly.");
+    return true;
+  }
+  if (/\b(done|finish|finished)\b/.test(t) || (/\bstop\b/.test(t) && scan.timer)) { if (scan.timer) finishScan(); return true; }
+  if (/\b(check this|check|scan|start|look)\b/.test(t)) {
+    const word = Object.keys(ROOM_WORDS).find(w => t.includes(w));
+    if (scan.timer) { scan.lastSent = 0; T.say("Checking."); }
+    else startScan({ auto: true, room: word ? ROOM_WORDS[word] : null }).then(() => { if (!scan.timer) T.say("Tap Scan a room to turn on the camera."); });
+    return true;
+  }
+  if (/\b(photo|picture)\b/.test(t)) { location.href = "camera.html"; return true; }
+  return false;
+});
+
+// ---------- start ----------
+renderHome();
+const params = new URLSearchParams(location.search);
+const hash = location.hash.slice(1);
+showView(VIEWS.includes(hash) ? hash : "home");
+if (params.get("mode") === "scan") startScan({ auto: true, room: params.get("room") });   // [voice] Siri Shortcut / deep link
+else if (hash === "scan") setTimeout(pickRoomAndScan, 250);                              // Scan tab from another page
+addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h === "scan") pickRoomAndScan(); else if (VIEWS.includes(h)) showView(h); });
+</script>
+</body>
+</html>
